@@ -16,7 +16,7 @@ In your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  sddl_sdk: ^0.0.6
+  sddl_sdk: ^0.0.7
 ```
 
 Then run:
