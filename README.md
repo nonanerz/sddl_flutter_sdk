@@ -146,3 +146,5 @@ class _MyAppState extends State<MyApp> {
 - iOS: verify Associated Domains and that your AASA file is accessible.
 - Call `Sddl.init` only once; pair it with `Sddl.dispose` when appropriate.
 
+
+Powered by [sddl.me](https://sddl.me)
