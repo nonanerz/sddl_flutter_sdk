@@ -3,12 +3,15 @@ import 'package:http/http.dart' as http;
 import 'models/link_data.dart';
 
 class SddlApi {
-  static const _baseUrl = 'https://sddl.me/api';
-  static Future<LinkData?> getLinkData(String key) async {
-    final response = await http.get(Uri.parse('$_baseUrl/$key/details'));
+  static const _base = 'https://sddl.me/api';
 
-    if (response.statusCode == 200) {
-      return LinkData.fromJson(jsonDecode(response.body));
+  /// GET /api/{key}/details[?query]
+  static Future<LinkData?> getLinkData(String key, {String? query}) async {
+    final uri =
+        Uri.parse('$_base/$key/details${query != null ? '?$query' : ''}');
+    final resp = await http.get(uri);
+    if (resp.statusCode == 200) {
+      return LinkData.fromJson(jsonDecode(resp.body));
     }
     return null;
   }

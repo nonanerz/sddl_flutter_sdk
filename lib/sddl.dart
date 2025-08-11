@@ -1,51 +1,175 @@
-import 'package:uni_links/uni_links.dart';
-import 'package:http/http.dart' as http;
+import 'dart:async';
 import 'dart:convert';
+
+import 'package:flutter/services.dart';
+import 'package:http/http.dart' as http;
+import 'package:uni_links/uni_links.dart';
+
 import 'models/link_data.dart';
 import 'api.dart';
 
 class Sddl {
-  static void init({required Function(LinkData?) onLinkReceived}) {
-    // Listen for incoming links when app is running
-    uriLinkStream.listen((uri) async {
-      final linkData = await _resolveUri(uri);
-      onLinkReceived(linkData);
+  static StreamSubscription? _sub;
+  static Timer? _coldTimer;
+
+  static bool _resolving = false; // single-flight
+  static bool _ulArrived = false; // UL has arrived during this session
+
+  /// Start listening. Call once (e.g., in initState).
+  static void init({
+    required void Function(LinkData data) onSuccess,
+    void Function(String error)? onError,
+  }) {
+    // 1) Stream for runtime links
+    _sub?.cancel();
+    _sub = uriLinkStream.listen((Uri? uri) async {
+      _ulArrived = true;
+      await _resolveFromUri(
+        uri: uri,
+        onSuccess: onSuccess,
+        onError: onError,
+      );
+    }, onError: (e) {
+      onError?.call('uni_links stream error: $e');
     });
 
-    // Handle cold start
-    _handleInitialUri(onLinkReceived);
+    // 2) Cold start (no URL yet)
+    _handleColdStart(onSuccess: onSuccess, onError: onError);
   }
 
-  static Future<void> _handleInitialUri(Function(LinkData?) onLinkReceived) async {
+  /// Stop listening. Call in dispose().
+  static void dispose() {
+    _sub?.cancel();
+    _sub = null;
+    _coldTimer?.cancel();
+    _coldTimer = null;
+    _resolving = false;
+    _ulArrived = false;
+  }
+
+  // ---- Internals -----------------------------------------------------------
+
+  static Future<void> _handleColdStart({
+    required void Function(LinkData data) onSuccess,
+    void Function(String error)? onError,
+  }) async {
     try {
-      final uri = await getInitialUri();
-      final linkData = await _resolveUri(uri);
-
-      if (linkData != null) {
-        onLinkReceived(linkData);
-      } else {
-        // Try to resolve link via fallback API
-        final fallbackData = await _fetchTryDetails();
-        onLinkReceived(fallbackData);
-      }
-    } catch (e) {    }
-  }
-
-  static Future<LinkData?> _resolveUri(Uri? uri) async {
-    if (uri == null || uri.pathSegments.isEmpty) return null;
-    final key = uri.pathSegments.last;
-    return await SddlApi.getLinkData(key);
-  }
-
-  static Future<LinkData?> _fetchTryDetails() async {
-    try {
-      final response = await http.get(Uri.parse('https://sddl.me/api/try/details'));
-      if (response.statusCode == 200) {
-        final jsonData = jsonDecode(response.body);
-        return LinkData.fromJson(jsonData);
+      final initial = await getInitialUri(); // may be null
+      if (initial != null) {
+        _ulArrived = true;
+        await _resolveFromUri(
+          uri: initial,
+          onSuccess: onSuccess,
+          onError: onError,
+        );
+        return;
       }
     } catch (e) {
+      onError?.call('getInitialUri error: $e');
     }
-    return null;
+
+    // Small delay so a late UL can arrive first
+    _coldTimer?.cancel();
+    _coldTimer = Timer(const Duration(milliseconds: 300), () async {
+      if (_ulArrived) return; // UL won
+      if (_resolving) return; // single-flight
+
+      // Clipboard → /api/{key}/details → else /api/try/details
+      final clipKey = await _readClipboardKey();
+      if (clipKey != null) {
+        await _getDetails(
+          key: clipKey,
+          query: null,
+          onSuccess: onSuccess,
+          onError: onError,
+        );
+      } else {
+        await _getTryDetails(onSuccess: onSuccess, onError: onError);
+      }
+    });
+  }
+
+  static Future<void> _resolveFromUri({
+    required Uri? uri,
+    required void Function(LinkData data) onSuccess,
+    void Function(String error)? onError,
+  }) async {
+    if (uri == null) return;
+    if (_resolving) return;
+    _resolving = true;
+
+    try {
+      final key = _extractKey(uri);
+      if (key != null) {
+        await _getDetails(
+          key: key,
+          query: uri.query.isNotEmpty ? uri.query : null,
+          onSuccess: onSuccess,
+          onError: onError,
+        );
+      } else {
+        // URL без ключа → не чіпаємо Clipboard, одразу try/details
+        await _getTryDetails(onSuccess: onSuccess, onError: onError);
+      }
+    } finally {
+      _resolving = false;
+    }
+  }
+
+  static String? _extractKey(Uri uri) {
+    if (uri.pathSegments.isEmpty) return null;
+    // first path segment only (aligned with Android/iOS)
+    final first = uri.pathSegments.first.trim();
+    final isValid = RegExp(r'^[A-Za-z0-9_-]{4,64}$').hasMatch(first);
+    return isValid ? first : null;
+  }
+
+  static Future<String?> _readClipboardKey() async {
+    try {
+      final data = await Clipboard.getData(Clipboard.kTextPlain);
+      final text = (data?.text ?? '').trim();
+      if (text.isEmpty) return null;
+      final isValid = RegExp(r'^[A-Za-z0-9_-]{4,64}$').hasMatch(text);
+      return isValid ? text : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static Future<void> _getDetails({
+    required String key,
+    String? query,
+    required void Function(LinkData data) onSuccess,
+    void Function(String error)? onError,
+  }) async {
+    try {
+      final data = await SddlApi.getLinkData(key, query: query);
+      if (data != null) {
+        onSuccess(data);
+      } else {
+        // 404/410 or other → best effort
+        await _getTryDetails(onSuccess: onSuccess, onError: onError);
+      }
+    } catch (e) {
+      onError?.call('details error: $e');
+    }
+  }
+
+  static Future<void> _getTryDetails({
+    required void Function(LinkData data) onSuccess,
+    void Function(String error)? onError,
+  }) async {
+    try {
+      final resp = await http.get(Uri.parse('https://sddl.me/api/try/details'));
+      if (resp.statusCode == 200) {
+        final json = jsonDecode(resp.body);
+        final data = LinkData.fromJson(json);
+        onSuccess(data);
+      } else {
+        onError?.call('try/details HTTP ${resp.statusCode}');
+      }
+    } catch (e) {
+      onError?.call('try/details error: $e');
+    }
   }
 }

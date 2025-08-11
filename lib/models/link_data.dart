@@ -5,7 +5,6 @@ class LinkData {
   final String? androidUrl;
   final String? webUrl;
   final String? passthrough;
-  final String? scheme;
   final String? webhookUrl;
   final Map<String, dynamic>? metaData;
   final Map<String, dynamic>? extraData;
@@ -17,7 +16,6 @@ class LinkData {
     this.androidUrl,
     this.webUrl,
     this.passthrough,
-    this.scheme,
     this.webhookUrl,
     this.metaData,
     this.extraData,
@@ -31,7 +29,6 @@ class LinkData {
       androidUrl: json['androidUrl'],
       webUrl: json['webUrl'],
       passthrough: json['passthrough'],
-      scheme: json['scheme'],
       webhookUrl: json['webhookUrl'],
       metaData: json['metaData'] ?? {},
       extraData: json['extraData'] ?? {},
@@ -39,5 +36,6 @@ class LinkData {
   }
 
   @override
-  String toString() => 'LinkData(keyName: $keyName, iosUrl: $iosUrl, androidUrl: $androidUrl)';
+  String toString() =>
+      'LinkData(keyName: $keyName, iosUrl: $iosUrl, androidUrl: $androidUrl)';
 }
