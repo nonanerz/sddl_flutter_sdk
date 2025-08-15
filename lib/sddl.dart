@@ -1,8 +1,5 @@
 import 'dart:async';
-import 'dart:convert';
-
 import 'package:flutter/services.dart';
-import 'package:http/http.dart' as http;
 import 'package:uni_links/uni_links.dart';
 
 import 'models/link_data.dart';
@@ -79,7 +76,6 @@ class Sddl {
       if (clipKey != null) {
         await _getDetails(
           key: clipKey,
-          query: null,
           onSuccess: onSuccess,
           onError: onError,
         );
@@ -103,12 +99,10 @@ class Sddl {
       if (key != null) {
         await _getDetails(
           key: key,
-          query: uri.query.isNotEmpty ? uri.query : null,
           onSuccess: onSuccess,
           onError: onError,
         );
       } else {
-        // URL без ключа → не чіпаємо Clipboard, одразу try/details
         await _getTryDetails(onSuccess: onSuccess, onError: onError);
       }
     } finally {
@@ -138,12 +132,11 @@ class Sddl {
 
   static Future<void> _getDetails({
     required String key,
-    String? query,
     required void Function(LinkData data) onSuccess,
     void Function(String error)? onError,
   }) async {
     try {
-      final data = await SddlApi.getLinkData(key, query: query);
+      final data = await SddlApi.getLinkData(key);
       if (data != null) {
         onSuccess(data);
       } else {
@@ -160,13 +153,11 @@ class Sddl {
     void Function(String error)? onError,
   }) async {
     try {
-      final resp = await http.get(Uri.parse('https://sddl.me/api/try/details'));
-      if (resp.statusCode == 200) {
-        final json = jsonDecode(resp.body);
-        final data = LinkData.fromJson(json);
+      final data = await SddlApi.getTryDetails();
+      if (data != null) {
         onSuccess(data);
       } else {
-        onError?.call('try/details HTTP ${resp.statusCode}');
+        onError?.call('try/details HTTP error');
       }
     } catch (e) {
       onError?.call('try/details error: $e');
