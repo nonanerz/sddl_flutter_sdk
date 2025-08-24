@@ -10,7 +10,7 @@ Add to `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  sddl_sdk: ^0.1.1
+  sddl_sdk: ^0.1.2
 ```
 
 Then run:
@@ -79,6 +79,7 @@ class _MyAppState extends State<MyApp> {
     Sddl.init(
       onSuccess: _onDeepLink,
       onError: (err) => debugPrint('SDDL error: $err'),
+      // readClipboard: true by default
     );
   }
 

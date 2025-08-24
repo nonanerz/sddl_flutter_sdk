@@ -1,86 +1,101 @@
 import 'dart:async';
+import 'dart:io' show Platform;
 import 'package:flutter/services.dart';
-import 'package:uni_links/uni_links.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:app_links/app_links.dart';
 
 import 'models/link_data.dart';
 import 'api.dart';
 
 class Sddl {
+  static const _coldDelay = Duration(milliseconds: 300);
+  static const _coldDoneKey = 'sddl.coldstartDone.v1';
+
   static StreamSubscription? _sub;
   static Timer? _coldTimer;
+  static AppLinks? _appLinks;
 
-  static bool _resolving = false; // single-flight
-  static bool _ulArrived = false; // UL has arrived during this session
+  static bool _resolving = false;
+  static bool _ulArrived = false;
 
-  /// Start listening. Call once (e.g., in initState).
   static void init({
     required void Function(LinkData data) onSuccess,
     void Function(String error)? onError,
-  }) {
-    // 1) Stream for runtime links
+    bool readClipboard = true,
+  }) async {
+    _appLinks = AppLinks();
     _sub?.cancel();
-    _sub = uriLinkStream.listen((Uri? uri) async {
+    _sub = _appLinks!.uriLinkStream.listen((Uri? uri) async {
       _ulArrived = true;
+      _coldTimer?.cancel();
       await _resolveFromUri(
         uri: uri,
         onSuccess: onSuccess,
         onError: onError,
       );
     }, onError: (e) {
-      onError?.call('uni_links stream error: $e');
+      onError?.call('app_links stream error: $e');
     });
 
-    // 2) Cold start (no URL yet)
-    _handleColdStart(onSuccess: onSuccess, onError: onError);
+    try {
+      final initial = await _appLinks!.getInitialLink();
+      if (initial != null) {
+        _ulArrived = true;
+        _coldTimer?.cancel();
+        await _resolveFromUri(uri: initial, onSuccess: onSuccess, onError: onError);
+        return;
+      }
+    } catch (e) {
+      onError?.call('getInitialLink error: $e');
+    }
+
+    _handleColdStart(onSuccess: onSuccess, onError: onError, readClipboard: readClipboard);
   }
 
-  /// Stop listening. Call in dispose().
   static void dispose() {
     _sub?.cancel();
     _sub = null;
     _coldTimer?.cancel();
     _coldTimer = null;
+    _appLinks = null;
     _resolving = false;
     _ulArrived = false;
   }
 
-  // ---- Internals -----------------------------------------------------------
-
   static Future<void> _handleColdStart({
     required void Function(LinkData data) onSuccess,
     void Function(String error)? onError,
+    required bool readClipboard,
   }) async {
-    try {
-      final initial = await getInitialUri(); // may be null
-      if (initial != null) {
-        _ulArrived = true;
-        await _resolveFromUri(
-          uri: initial,
-          onSuccess: onSuccess,
-          onError: onError,
-        );
-        return;
-      }
-    } catch (e) {
-      onError?.call('getInitialUri error: $e');
-    }
+    final prefs = await SharedPreferences.getInstance();
+    if (prefs.getBool(_coldDoneKey) == true) return;
 
-    // Small delay so a late UL can arrive first
     _coldTimer?.cancel();
-    _coldTimer = Timer(const Duration(milliseconds: 300), () async {
-      if (_ulArrived) return; // UL won
-      if (_resolving) return; // single-flight
+    _coldTimer = Timer(_coldDelay, () async {
+      if (_ulArrived) return;
+      if (_resolving) return;
+      _resolving = true;
+      try {
+        await prefs.setBool(_coldDoneKey, true);
 
-      // Clipboard → /api/{key}/details → else /api/try/details
-      final clipKey = await _readClipboardKey();
-      if (clipKey != null) {
-        await _getDetails(
-          key: clipKey,
-          onSuccess: onSuccess,
-          onError: onError,
-        );
-      } else {
-        await _getTryDetails(onSuccess: onSuccess, onError: onError);
+        final clipKey = readClipboard ? await _readClipboardKey() : null;
+        if (clipKey != null) {
+          final data = await SddlApi.getLinkData(clipKey);
+          if (data != null) {
+            onSuccess(data);
+            return;
+          }
+        }
+        final data = await SddlApi.getTryDetails();
+        if (data != null) {
+          onSuccess(data);
+        } else {
+          onError?.call('try/details HTTP error');
+        }
+      } catch (e) {
+        onError?.call('cold start error: $e');
+      } finally {
+        _resolving = false;
       }
     });
   }
@@ -95,27 +110,42 @@ class Sddl {
     _resolving = true;
 
     try {
-      final key = _extractKey(uri);
+      final key = _extractIdentifier(uri);
       if (key != null) {
-        await _getDetails(
-          key: key,
-          onSuccess: onSuccess,
-          onError: onError,
-        );
+        final data = await SddlApi.getLinkData(key, query: uri.query);
+        if (data != null) {
+          onSuccess(data);
+        } else {
+          final tryData = await SddlApi.getTryDetails();
+          if (tryData != null) {
+            onSuccess(tryData);
+          } else {
+            onError?.call('details fallback error');
+          }
+        }
       } else {
-        await _getTryDetails(onSuccess: onSuccess, onError: onError);
+        final tryData = await SddlApi.getTryDetails();
+        if (tryData != null) {
+          onSuccess(tryData);
+        } else {
+          onError?.call('try/details HTTP error');
+        }
       }
+    } catch (e) {
+      onError?.call('resolve error: $e');
     } finally {
       _resolving = false;
     }
   }
 
-  static String? _extractKey(Uri uri) {
-    if (uri.pathSegments.isEmpty) return null;
-    // first path segment only (aligned with Android/iOS)
-    final first = uri.pathSegments.first.trim();
-    final isValid = RegExp(r'^[A-Za-z0-9_-]{4,64}$').hasMatch(first);
-    return isValid ? first : null;
+  static String? _extractIdentifier(Uri uri) {
+    if (uri.pathSegments.isNotEmpty) {
+      final first = uri.pathSegments.first.trim();
+      if (RegExp(r'^[A-Za-z0-9_-]{4,64}$').hasMatch(first)) return first;
+    }
+    final host = (uri.host).trim();
+    if (RegExp(r'^[A-Za-z0-9_-]{4,64}$').hasMatch(host)) return host;
+    return null;
   }
 
   static Future<String?> _readClipboardKey() async {
@@ -127,40 +157,6 @@ class Sddl {
       return isValid ? text : null;
     } catch (_) {
       return null;
-    }
-  }
-
-  static Future<void> _getDetails({
-    required String key,
-    required void Function(LinkData data) onSuccess,
-    void Function(String error)? onError,
-  }) async {
-    try {
-      final data = await SddlApi.getLinkData(key);
-      if (data != null) {
-        onSuccess(data);
-      } else {
-        // 404/410 or other → best effort
-        await _getTryDetails(onSuccess: onSuccess, onError: onError);
-      }
-    } catch (e) {
-      onError?.call('details error: $e');
-    }
-  }
-
-  static Future<void> _getTryDetails({
-    required void Function(LinkData data) onSuccess,
-    void Function(String error)? onError,
-  }) async {
-    try {
-      final data = await SddlApi.getTryDetails();
-      if (data != null) {
-        onSuccess(data);
-      } else {
-        onError?.call('try/details HTTP error');
-      }
-    } catch (e) {
-      onError?.call('try/details error: $e');
     }
   }
 }
