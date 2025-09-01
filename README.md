@@ -10,7 +10,7 @@ Add to `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  sddl_sdk: ^0.1.2
+  sddl_sdk: ^0.1.3
 ```
 
 Then run:
@@ -50,11 +50,20 @@ applinks:{YOUR_ID}.sddl.me
 
 or your custom domain.
 
+**Important**: Add this to `ios/Runner/Info.plist` to prevent browser fallback:
+
+```xml
+<key>FlutterDeepLinkingEnabled</key>
+<false/>
+```
+
+This disables Flutter's built-in deep linking that can conflict with the SDK.
+
 ---
 
 ## Usage
 
-Initialize the SDK once and provide handlers for success and error. Recommended place — root widget’s `initState`, and call `dispose()` when the widget is destroyed.
+Initialize the SDK once and provide handlers for success and error. Recommended place — root widget's `initState`, and call `dispose()` when the widget is destroyed.
 
 ```dart
 import 'package:flutter/material.dart';
@@ -107,20 +116,6 @@ class _MyAppState extends State<MyApp> {
 }
 ```
 
----
-
-## Resolution order (SDK behavior)
-
-- If a Universal/App Link URL is delivered: the SDK uses only that URL.
-    - If the first path segment is a valid key → `GET /api/{key}/details` (query params are preserved).
-    - If the URL has no valid key → `GET /api/try/details`.
-- If no URL (cold start): short internal delay to allow a late UL; then
-    - If clipboard contains a valid key → `GET /api/{key}/details`.
-    - Otherwise → `GET /api/try/details`.
-
-> Key is expected in the **first** path segment, e.g. `https://sddl.me/AbCd1234?...` → `AbCd1234`.
-
----
 
 ## LinkData example
 

@@ -2,10 +2,12 @@ import 'dart:convert';
 import 'dart:io' show Platform;
 import 'dart:ui' as ui;
 
+import 'package:flutter/cupertino.dart';
 import 'package:http/http.dart' as http;
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:flutter_timezone/flutter_timezone.dart';
 import 'package:device_info_plus/device_info_plus.dart';
+import 'package:sddl_sdk/referrer.dart';
 
 import 'models/link_data.dart';
 
@@ -50,36 +52,60 @@ class SddlApi {
       headers['X-Client-Language'] = loc;
     } catch (_) {}
 
-    try {
-      final tz = await FlutterTimezone.getLocalTimezone();
-      if (tz.isNotEmpty) headers['X-Client-Timezone'] = tz;
-    } catch (_) {}
 
     try {
       final deviceInfo = DeviceInfoPlugin();
       if (Platform.isIOS) {
         final ios = await deviceInfo.iosInfo;
-        headers['X-Client-OS-Version'] = ios.systemVersion.split('.').first;
+        headers['X-Client-OS-Version'] = ios.systemVersion;
       } else if (Platform.isAndroid) {
         final android = await deviceInfo.androidInfo;
-        final rel = (android.version.release ?? '').trim();
-        final relDigits = RegExp(r'^\d+').firstMatch(rel)?.group(0);
-        headers['X-Client-OS-Version'] = relDigits?.isNotEmpty == true
-            ? relDigits!
+        headers['X-Client-OS-Version'] =
+        (android.version.release ?? '').trim().isNotEmpty
+            ? (android.version.release ?? '').trim()
             : '${android.version.sdkInt}';
       } else {
-        final m = RegExp(r'\d+').firstMatch(Platform.operatingSystemVersion);
-        headers['X-Client-OS-Version'] = m?.group(0) ?? Platform.operatingSystemVersion;
+        headers['X-Client-OS-Version'] = Platform.operatingSystemVersion;
+      }
+    } catch (_) {}
+
+
+    try {
+      final tz = await FlutterTimezone.getLocalTimezone()
+          .timeout(const Duration(milliseconds: 500));
+      if (tz.isNotEmpty) headers['X-Client-Timezone'] = tz;
+    } catch (_) {}
+
+    try {
+      final dispatcher = WidgetsBinding.instance.platformDispatcher;
+      final views = dispatcher.views;
+      if (views.isNotEmpty) {
+        final v = views.first;
+        final pixelRatio = v.devicePixelRatio;
+        final size = v.physicalSize;
+        final cssW = (size.width / pixelRatio).round();
+        final cssH = (size.height / pixelRatio).round();
+        headers['X-Client-Screen-Width'] = '$cssW';
+        headers['X-Client-Screen-Height'] = '$cssH';
       }
     } catch (_) {}
 
     try {
-      final pixelRatio = ui.window.devicePixelRatio;
-      final size = ui.window.physicalSize;
-      final cssW = (size.width / pixelRatio).round();
-      final cssH = (size.height / pixelRatio).round();
-      headers['X-Client-Screen-Width'] = '$cssW';
-      headers['X-Client-Screen-Height'] = '$cssH';
+      final info = await SddlReferrer.get(waitMs: 350);
+      if (info.hasData) {
+        headers['X-Install-Referrer'] = info.raw;
+        if (info.clickTsSec > 0) headers['X-Referrer-Click-Ts'] = '${info.clickTsSec}';
+        if (info.installBeginTsSec > 0) headers['X-Install-Begin-Ts'] = '${info.installBeginTsSec}';
+        final p = info.params;
+        if (p['utm_source'] != null) headers['X-UTM-Source'] = p['utm_source']!;
+        if (p['utm_medium'] != null) headers['X-UTM-Medium'] = p['utm_medium']!;
+        if (p['utm_campaign'] != null) headers['X-UTM-Campaign'] = p['utm_campaign']!;
+        if (p['utm_term'] != null) headers['X-UTM-Term'] = p['utm_term']!;
+        if (p['utm_content'] != null) headers['X-UTM-Content'] = p['utm_content']!;
+        if (p['gclid'] != null) headers['X-GCLID'] = p['gclid']!;
+        final sddl = p['sddl'] ?? p['sddl_id'];
+        if (sddl != null) headers['X-SDDL-ID'] = sddl;
+      }
     } catch (_) {}
 
     return headers;

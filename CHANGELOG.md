@@ -7,3 +7,6 @@
 
 ## 0.1.2
 * Added optional readClipboard flag to Sddl.init (enabled by default).
+
+## 0.1.3
+* Added Android referrer.
