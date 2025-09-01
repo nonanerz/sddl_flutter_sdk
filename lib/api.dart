@@ -1,7 +1,5 @@
 import 'dart:convert';
 import 'dart:io' show Platform;
-import 'dart:ui' as ui;
-
 import 'package:flutter/cupertino.dart';
 import 'package:http/http.dart' as http;
 import 'package:package_info_plus/package_info_plus.dart';
