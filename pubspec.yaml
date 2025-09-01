@@ -1,6 +1,6 @@
 name: sddl_sdk
 description: A Flutter SDK for working with SDDL deep links and attribution.
-version: 0.1.3
+version: 0.1.4
 homepage: https://sddl.me
 
 environment:

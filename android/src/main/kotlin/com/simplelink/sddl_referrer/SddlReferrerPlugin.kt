@@ -2,6 +2,8 @@ package com.simplelink.sddl_referrer
 
 import android.content.Context
 import android.net.Uri
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import androidx.annotation.NonNull
 import com.android.installreferrer.api.InstallReferrerClient
@@ -11,11 +13,14 @@ import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 
 class SddlReferrerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
 
     private lateinit var channel: MethodChannel
     private lateinit var appContext: Context
+    private val mainHandler by lazy { Handler(Looper.getMainLooper()) }
+    private val isFetching = AtomicBoolean(false)
 
     override fun onAttachedToEngine(@NonNull binding: FlutterPlugin.FlutterPluginBinding) {
         channel = MethodChannel(binding.binaryMessenger, "sddl_referrer")
@@ -31,7 +36,11 @@ class SddlReferrerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         when (call.method) {
             "getInstallReferrer" -> {
                 val waitMs = (call.argument<Int>("waitMs") ?: 0).coerceAtLeast(0)
-                result.success(getInstallReferrer(waitMs))
+
+                Thread {
+                    val data = getInstallReferrerBlocking(waitMs)
+                    mainHandler.post { result.success(data) }
+                }.start()
             }
             else -> result.notImplemented()
         }
@@ -90,7 +99,7 @@ class SddlReferrerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
             .apply()
     }
 
-    private fun getInstallReferrer(waitMs: Int): Map<String, Any> {
+    private fun getInstallReferrerBlocking(waitMs: Int): Map<String, Any> {
         val cached = readCached()
         if (cached.isNotEmpty()) return cached
 
@@ -109,26 +118,37 @@ class SddlReferrerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     }
 
     private fun startFetchAsync(onDone: (() -> Unit)? = null) {
+        if (!isFetching.compareAndSet(false, true)) {
+            onDone?.invoke()
+            return
+        }
+
         val client = InstallReferrerClient.newBuilder(appContext).build()
         client.startConnection(object : InstallReferrerStateListener {
             override fun onInstallReferrerSetupFinished(responseCode: Int) {
+                Log.d("SDDL", "Install Referrer Response Code: $responseCode")
                 try {
                     if (responseCode == InstallReferrerClient.InstallReferrerResponse.OK) {
                         val info = client.installReferrer
                         val raw = info.installReferrer.orEmpty()
                         val click = info.referrerClickTimestampSeconds
                         val install = info.installBeginTimestampSeconds
+                        Log.d("SDDL", "Install Referrer Raw: '$raw'")
+                        Log.d("SDDL", "Click Timestamp: $click")
+                        Log.d("SDDL", "Install Begin: $install")
                         if (raw.isNotBlank()) cache(raw, click, install)
                     }
                 } catch (t: Throwable) {
                     Log.w("SDDL", "InstallReferrer error: ${t.message}")
                 } finally {
                     try { client.endConnection() } catch (_: Throwable) {}
-                    onDone?.let { it() }
+                    isFetching.set(false)
+                    onDone?.invoke()
                 }
             }
             override fun onInstallReferrerServiceDisconnected() {
-                onDone?.let { it() }
+                isFetching.set(false)
+                onDone?.invoke()
             }
         })
     }

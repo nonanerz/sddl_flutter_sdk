@@ -1,4 +1,4 @@
 #import <Flutter/Flutter.h>
 
-@interface SddlReferrerPlugin : NSObject <FlutterPlugin>
+@interface SddlReferrerPlugin : NSObject<FlutterPlugin>
 @end

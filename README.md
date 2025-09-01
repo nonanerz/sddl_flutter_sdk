@@ -10,7 +10,7 @@ Add to `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  sddl_sdk: ^0.1.3
+  sddl_sdk: ^0.1.4
 ```
 
 Then run:

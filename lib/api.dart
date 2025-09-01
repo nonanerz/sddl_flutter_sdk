@@ -1,6 +1,6 @@
 import 'dart:convert';
 import 'dart:io' show Platform;
-import 'package:flutter/cupertino.dart';
+import 'package:flutter/widgets.dart';
 import 'package:http/http.dart' as http;
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:flutter_timezone/flutter_timezone.dart';
@@ -46,10 +46,8 @@ class SddlApi {
     } catch (_) {}
 
     try {
-      final loc = Platform.localeName.replaceAll('_', '-');
-      headers['X-Client-Language'] = loc;
+      headers['X-Client-Language'] = Platform.localeName.replaceAll('_', '-');
     } catch (_) {}
-
 
     try {
       final deviceInfo = DeviceInfoPlugin();
@@ -58,15 +56,12 @@ class SddlApi {
         headers['X-Client-OS-Version'] = ios.systemVersion;
       } else if (Platform.isAndroid) {
         final android = await deviceInfo.androidInfo;
-        headers['X-Client-OS-Version'] =
-        (android.version.release ?? '').trim().isNotEmpty
-            ? (android.version.release ?? '').trim()
-            : '${android.version.sdkInt}';
+        final rel = (android.version.release ?? '').trim();
+        headers['X-Client-OS-Version'] = rel.isNotEmpty ? rel : '${android.version.sdkInt}';
       } else {
         headers['X-Client-OS-Version'] = Platform.operatingSystemVersion;
       }
     } catch (_) {}
-
 
     try {
       final tz = await FlutterTimezone.getLocalTimezone()
@@ -89,7 +84,7 @@ class SddlApi {
     } catch (_) {}
 
     try {
-      final info = await SddlReferrer.get(waitMs: 350);
+      final info = await SddlReferrer.get(waitMs: 500);
       if (info.hasData) {
         headers['X-Install-Referrer'] = info.raw;
         if (info.clickTsSec > 0) headers['X-Referrer-Click-Ts'] = '${info.clickTsSec}';

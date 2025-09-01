@@ -10,3 +10,6 @@
 
 ## 0.1.3
 * Added Android referrer.
+
+## 0.1.4
+* Bugfixes.

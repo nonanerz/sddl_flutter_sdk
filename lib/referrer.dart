@@ -29,7 +29,7 @@ class SddlReferrerInfo {
 class SddlReferrer {
   static const MethodChannel _ch = MethodChannel('sddl_referrer');
 
-  static Future<SddlReferrerInfo> get({int waitMs = 0}) async {
+  static Future<SddlReferrerInfo> get({int waitMs = 350}) async {
     final res = await _ch.invokeMethod<Map<dynamic, dynamic>>(
       'getInstallReferrer',
       {'waitMs': waitMs},

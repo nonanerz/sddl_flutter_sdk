@@ -1,7 +1,4 @@
-#import <Flutter/Flutter.h>
-
-@interface SddlReferrerPlugin : NSObject<FlutterPlugin>
-@end
+#import "SddlReferrerPlugin.h"
 
 @implementation SddlReferrerPlugin
 + (void)registerWithRegistrar:(NSObject<FlutterPluginRegistrar>*)registrar {
@@ -11,9 +8,10 @@
     SddlReferrerPlugin* instance = [[SddlReferrerPlugin alloc] init];
     [registrar addMethodCallDelegate:instance channel:channel];
 }
+
 - (void)handleMethodCall:(FlutterMethodCall*)call result:(FlutterResult)result {
     if ([@"getInstallReferrer" isEqualToString:call.method]) {
-        result(@{}); // iOS: no-op
+        result(@{}); 
     } else {
         result(FlutterMethodNotImplemented);
     }
